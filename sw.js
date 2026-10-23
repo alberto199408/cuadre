@@ -1,12 +1,24 @@
 /* Cuadre · service worker: la app funciona sin internet.
    Guarda todos los archivos en el teléfono y los sirve desde ahí; si hay internet, los renueva por detrás. */
-const V='cuadre-0f2e1dd577';
+const V='cuadre-58be974d9a';
 const FILES=['./','index.html','manifest.webmanifest','jspdf.min.js','zxing.min.js','icon-192.png','icon-512.png','icon-maskable-512.png','apple-touch-icon.png','favicon-48.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V&&k.indexOf('cuadre-')===0).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
+/* Otras apps del mismo sitio (github.io) pueden borrar este caché al actualizarse: si falta algo, se vuelve a guardar al abrir la app con internet. */
+let healing=null;
+function heal(){
+  if(healing)return healing;
+  healing=caches.open(V).then(async c=>{
+    const have=new Set((await c.keys()).map(k=>new URL(k.url).pathname));
+    const miss=FILES.filter(f=>!have.has(new URL(f,self.registration.scope).pathname));
+    if(miss.length)await c.addAll(miss);
+  }).catch(()=>{}).then(()=>{healing=null});
+  return healing;
+}
 self.addEventListener('fetch',e=>{
   const r=e.request;if(r.method!=='GET')return;
   const u=new URL(r.url);if(u.origin!==location.origin)return;
+  if(r.mode==='navigate')e.waitUntil(heal());
   e.respondWith(caches.match(r,{ignoreSearch:true}).then(hit=>{
     const net=fetch(r).then(res=>{if(res&&res.ok&&res.type==='basic'){const cp=res.clone();caches.open(V).then(c=>c.put(r,cp))}return res}).catch(()=>null);
     if(hit){e.waitUntil(net);return hit}
